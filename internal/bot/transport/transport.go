@@ -7,6 +7,7 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -77,3 +78,46 @@ const MaxButtons = 4
 
 // MaxCallbackData is the longest button data an adapter must accept.
 const MaxCallbackData = 64
+
+// SendTimeout bounds one Send through a Mux, so that a messenger that hangs
+// cannot hold up the core or the other messengers.
+const SendTimeout = 8 * time.Second
+
+// ErrDown is what a Mux returns at once for a chat whose messenger last
+// reported itself down, without touching the network.
+var ErrDown = errors.New("transport: messenger is down")
+
+// Caps are what a chat can display: how many buttons go under a message
+// (0: none, the core asks for a reply instead), the longest text, and
+// whether that length is counted in UTF-16 units (Telegram) or in runes.
+type Caps struct {
+	Buttons int
+	MaxText int
+	UTF16   bool
+}
+
+// TelegramCaps are the defaults for a transport that is not Capable.
+var TelegramCaps = Caps{Buttons: MaxButtons, MaxText: 4096, UTF16: true}
+
+// Capable is implemented by a transport whose chats differ from
+// TelegramCaps.
+type Capable interface {
+	Caps(chat ChatID) Caps
+}
+
+// Status is a messenger's connection state. Reason is for humans ("logged
+// out", "connect failure"). Notify asks the core to tell the owner even when
+// this is the first status after start (a logout found on start); otherwise
+// the first status is only logged.
+type Status struct {
+	Messenger string
+	Up        bool
+	Reason    string
+	Notify    bool
+}
+
+// Reporter is implemented by a transport that reports its connection
+// state. The channel lives as long as the transport's Receive context.
+type Reporter interface {
+	Status() <-chan Status
+}

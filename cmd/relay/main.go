@@ -20,6 +20,7 @@ import (
 
 	"github.com/masteine/relay/internal/bot/core"
 	"github.com/masteine/relay/internal/bot/telegram"
+	"github.com/masteine/relay/internal/bot/transport"
 	"github.com/masteine/relay/internal/config"
 	"github.com/masteine/relay/internal/gh"
 	"github.com/masteine/relay/internal/protocol"
@@ -220,7 +221,7 @@ func botCmd(args []string, stderr io.Writer) error {
 		return fmt.Errorf("telegram: the token does not work: %w", err)
 	}
 	fmt.Fprintf(stderr, "relay bot: @%s, config %s\n", me, *cfgPath)
-	c := core.New(cfg, tg, func(repo gh.Repo) (gh.Client, error) { return gh.New(repo, ghToken) })
+	c := core.New(cfg, transport.NewMux("tg", map[string]transport.Transport{"tg": tg}), func(repo gh.Repo) (gh.Client, error) { return gh.New(repo, ghToken) })
 	c.Log = stderr
 	return c.Run(ctx)
 }

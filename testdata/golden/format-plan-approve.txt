@@ -1,0 +1,12 @@
+todo · masteine/relay-sandbox#7 · Темна тема
+
+## Relay · plan
+
+План у docs/specs/7-dark-theme.md.
+
+- Додати тему
+- Перемикач у налаштуваннях
+
+https://github.com/masteine/relay-sandbox/issues/7#issuecomment-105
+--- buttons ---
+[✅ Підтвердити] a:todo:7
