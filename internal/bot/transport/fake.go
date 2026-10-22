@@ -17,6 +17,14 @@ type Fake struct {
 	FailSend error
 	// FailChat makes Send fail for one chat only.
 	FailChat map[ChatID]error
+	// Hang makes Send for a chat block until its context ends, like a
+	// messenger that stopped answering.
+	Hang map[ChatID]bool
+	// Statuses, when set, is what Status returns; the test sends on it.
+	// Nil never fires.
+	Statuses chan Status
+	// CapsByChat overrides TelegramCaps for a chat.
+	CapsByChat map[ChatID]Caps
 }
 
 // Sent is one message the core sent.
@@ -27,7 +35,7 @@ type Sent struct {
 
 // NewFake returns a Fake with a buffered inbox.
 func NewFake() *Fake {
-	return &Fake{in: make(chan Incoming, 64), FailChat: map[ChatID]error{}}
+	return &Fake{in: make(chan Incoming, 64), FailChat: map[ChatID]error{}, Hang: map[ChatID]bool{}, CapsByChat: map[ChatID]Caps{}}
 }
 
 // Push delivers an Incoming to the core.
@@ -38,7 +46,14 @@ func (f *Fake) Close() { close(f.in) }
 
 func (f *Fake) Receive(context.Context) (<-chan Incoming, error) { return f.in, nil }
 
-func (f *Fake) Send(_ context.Context, chat ChatID, msg Outgoing) (MsgRef, error) {
+func (f *Fake) Send(ctx context.Context, chat ChatID, msg Outgoing) (MsgRef, error) {
+	f.mu.Lock()
+	hang := f.Hang[chat]
+	f.mu.Unlock()
+	if hang {
+		<-ctx.Done()
+		return "", ctx.Err()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.FailSend != nil {
@@ -57,6 +72,19 @@ func (f *Fake) Ack(_ context.Context, cb Callback, _ string) error {
 	f.Acks = append(f.Acks, cb)
 	return nil
 }
+
+// Caps makes a Fake Capable: TelegramCaps unless CapsByChat says otherwise.
+func (f *Fake) Caps(chat ChatID) Caps {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if c, ok := f.CapsByChat[chat]; ok {
+		return c
+	}
+	return TelegramCaps
+}
+
+// Status makes a Fake a Reporter.
+func (f *Fake) Status() <-chan Status { return f.Statuses }
 
 // Last returns the most recent sent message, or an empty Sent.
 func (f *Fake) Last() Sent {

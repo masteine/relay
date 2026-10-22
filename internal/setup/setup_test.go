@@ -187,14 +187,14 @@ func TestBotConfigRoundTrip(t *testing.T) {
 			t.Errorf("alias %q must be refused", bad)
 		}
 	}
-	if _, err := AllowPrincipal(path, "-100123", "7"); err != nil {
+	if _, err := AllowPrincipal(path, "telegram", "-100123", "7"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := AllowPrincipal(path, "-100123", "7"); err != nil {
+	if _, err := AllowPrincipal(path, "telegram", "-100123", "7"); err != nil {
 		t.Fatal(err)
 	}
 	for _, bad := range [][2]string{{"abc", "7"}, {"1", ""}, {"1\nallow:", "2"}} {
-		if _, err := AllowPrincipal(path, bad[0], bad[1]); err == nil {
+		if _, err := AllowPrincipal(path, "telegram", bad[0], bad[1]); err == nil {
 			t.Errorf("ids %q must be refused", bad)
 		}
 	}

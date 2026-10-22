@@ -25,16 +25,30 @@ aliases:
   {{.Alias}}: {{q .Repo}}
 {{- end}}
 
+{{if .WhatsApp -}}
+# Who may drive the bot: (chat, user) pairs in each messenger's own ids;
+# rows without "messenger" are Telegram.
+{{- else -}}
 # Who may drive the bot: (chat, user) pairs in Telegram's own ids.
+{{- end}}
 allow:
 {{- range .Allow}}
+{{- if .Messenger}}
+  - {messenger: {{.Messenger}}, chat: "{{.Chat}}", user: "{{.User}}"}
+{{- else}}
   - {chat: "{{.Chat}}", user: "{{.User}}"}
+{{- end}}
 {{- end}}
 
 telegram:
   keychain: {{q .Telegram.Keychain}}
 {{- if .Telegram.TokenFile}}
   token_file: {{q .Telegram.TokenFile}}
+{{- end}}
+{{- if .WhatsApp}}
+
+whatsapp:
+  store: {{q .WhatsApp.Store}}
 {{- end}}
 
 poll: {{.Poll}}
@@ -45,15 +59,32 @@ workflow: {{q .Workflow}}
 
 type aliasRow struct{ Alias, Repo string }
 
-// WriteBotConfig writes the config file, creating its directory.
+// WriteBotConfig writes the config file, creating its directory. A
+// Telegram-only config gets no messenger or whatsapp keys, so that an older
+// binary still reads it.
 func WriteBotConfig(path string, c core.Config) error {
 	var rows []aliasRow
 	for _, a := range c.AliasList() {
 		rows = append(rows, aliasRow{a, c.Aliases[a]})
 	}
+	allow := make([]core.Principal, len(c.Allow))
+	for i, p := range c.Allow {
+		p.Messenger = core.NormalizeMessenger(p.Messenger)
+		if p.Messenger == core.NameTelegram {
+			p.Messenger = ""
+		}
+		allow[i] = p
+	}
+	var whatsapp *core.WhatsApp
+	if c.Has(core.NameWhatsApp) || c.WhatsApp.Store != "" && c.WhatsApp.Store != core.DefaultWhatsAppStore() {
+		whatsapp = &c.WhatsApp
+		if whatsapp.Store == "" {
+			whatsapp = &core.WhatsApp{Store: core.DefaultWhatsAppStore()}
+		}
+	}
 	var buf bytes.Buffer
 	err := configTemplate.Execute(&buf, map[string]any{
-		"Aliases": rows, "Allow": c.Allow, "Telegram": c.Telegram,
+		"Aliases": rows, "Allow": allow, "Telegram": c.Telegram, "WhatsApp": whatsapp,
 		"Poll": c.Poll.String(), "Lookback": c.Lookback.String(), "Silence": c.Silence.String(), "Workflow": c.Workflow,
 	})
 	if err != nil {
@@ -99,17 +130,33 @@ func AddAlias(path, alias string, repo gh.Repo) (core.Config, error) {
 	return c, WriteBotConfig(path, c)
 }
 
-// AllowPrincipal records a (chat, user) pair in the config file.
-func AllowPrincipal(path, chat, user string) (core.Config, error) {
+// AllowPrincipal records a (chat, user) pair of a messenger ("" is
+// Telegram) in the config file, once.
+func AllowPrincipal(path, messenger, chat, user string) (core.Config, error) {
 	c, _, err := ReadBotConfig(path)
 	if err != nil {
 		return c, err
 	}
-	if !core.ValidID(chat) || !core.ValidID(user) {
-		return c, fmt.Errorf("chat %q and user %q must be numeric ids", chat, user)
+	p := core.Principal{Messenger: core.NormalizeMessenger(messenger), Chat: chat, User: user}
+	if p.Messenger == core.NameTelegram {
+		p.Messenger = ""
 	}
-	if !c.Allowed(chat, user) {
-		c.Allow = append(c.Allow, core.Principal{Chat: chat, User: user})
+	if err := p.Validate(); err != nil {
+		return c, err
+	}
+	if !hasPrincipal(c, p) {
+		c.Allow = append(c.Allow, p)
 	}
 	return c, WriteBotConfig(path, c)
+}
+
+// hasPrincipal compares normalised messengers, so that a row written as
+// "messenger: telegram" and one without the key are the same.
+func hasPrincipal(c core.Config, p core.Principal) bool {
+	for _, q := range c.Allow {
+		if core.NormalizeMessenger(q.Messenger) == core.NormalizeMessenger(p.Messenger) && q.Chat == p.Chat && q.User == p.User {
+			return true
+		}
+	}
+	return false
 }

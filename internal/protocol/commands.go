@@ -3,6 +3,7 @@ package protocol
 import (
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 // Command is a slash command written as an Issue comment. The bot's buttons
@@ -62,4 +63,36 @@ func ParseCommand(body string) (ParsedCommand, bool) {
 		return ParsedCommand{Name: Command(m[1]), Arg: strings.TrimSpace(m[2])}, true
 	}
 	return ParsedCommand{}, false
+}
+
+// NormalizeCommand lowercases a known command name on the first non-blank
+// line ("/Approve" → "/approve"), for phones that capitalise the first word
+// of a reply. The argument and the rest of the text stay as they are, and
+// "/Usr/bin" is not a command, so it stays too. The result is a comment
+// ParseCommand already reads; the protocol itself does not change.
+func NormalizeCommand(text string) string {
+	lines := strings.SplitAfter(text, "\n")
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		lead := len(line) - len(strings.TrimLeftFunc(line, unicode.IsSpace))
+		if line[lead] != '/' {
+			return text
+		}
+		end := lead + 1
+		for end < len(line) && (line[end] >= 'a' && line[end] <= 'z' || line[end] >= 'A' && line[end] <= 'Z') {
+			end++
+		}
+		name := strings.ToLower(line[lead+1 : end])
+		if !knownCommands[Command(name)] {
+			return text
+		}
+		if end < len(line) && !strings.ContainsRune(" \t\r\n", rune(line[end])) {
+			return text // "/Approve/x" is not the command
+		}
+		lines[i] = line[:lead+1] + name + line[end:]
+		return strings.Join(lines, "")
+	}
+	return text
 }

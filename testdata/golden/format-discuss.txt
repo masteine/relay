@@ -1,0 +1,13 @@
+todo · masteine/relay-sandbox#7 · Темна тема
+
+## Relay · discuss
+
+Зрозумів: темна тема має перемикатися з налаштувань.
+
+Два уточнення:
+1. Окремий перемикач «як у системі»?
+2. Міняємо іконку? 🎨
+
+https://github.com/masteine/relay-sandbox/issues/7#issuecomment-102
+--- buttons ---
+[📝 Сформулювати тікет] t:todo:7
