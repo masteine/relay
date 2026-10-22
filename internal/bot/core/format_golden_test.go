@@ -73,7 +73,7 @@ func TestFormatGolden(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			labels, _ := protocol.ParseLabels(tc.labels)
-			out := Format("todo", repo, issue, protocol.Comment{ID: tc.id, Author: protocol.BotLogin, Body: tc.body}, labels)
+			out := Format("todo", repo, issue, protocol.Comment{ID: tc.id, Author: protocol.BotLogin, Body: tc.body}, labels, transport.TelegramCaps)
 			golden(t, tc.name, render(out))
 		})
 	}

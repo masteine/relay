@@ -116,6 +116,7 @@ func (c *Core) Run(ctx context.Context) error {
 	if r, ok := c.Transport.(transport.Reporter); ok {
 		status = r.Status()
 	}
+	links := map[string]*link{}
 	ticker := time.NewTicker(c.Config.Poll)
 	defer ticker.Stop()
 	c.logf("started: %d alias(es), %d allowed chat(s), poll %s", len(c.Config.Aliases), len(c.Config.Chats()), c.Config.Poll)
@@ -138,11 +139,12 @@ func (c *Core) Run(ctx context.Context) error {
 				status = nil
 				continue
 			}
-			state := "down"
-			if st.Up {
-				state = "up"
+			l := links[st.Messenger]
+			if l == nil {
+				l = &link{}
+				links[st.Messenger] = l
 			}
-			c.logf("transport %s %s: %s", st.Messenger, state, st.Reason)
+			c.linkStatus(ctx, l, st)
 		case <-ticker.C:
 			if err := c.Poll(ctx); err != nil {
 				c.logf("poll: %v", err)
@@ -194,12 +196,24 @@ func (c *Core) Handle(ctx context.Context, in transport.Incoming) error {
 }
 
 // hint answers an unrecognised message, in private chats only: in a group
-// every stray message would get one.
+// every stray message would get one. A chat without buttons also learns how
+// to reply.
 func (c *Core) hint(ctx context.Context, in transport.Incoming, text string) error {
 	if !in.Private {
 		return nil
 	}
+	if c.caps(in.Chat).Buttons == 0 {
+		text += "\nПроведіть пальцем праворуч по повідомленню Relay, щоб відповісти; команди — /ticket, /approve, /retry."
+	}
 	return c.send(ctx, in.Chat, text)
+}
+
+// caps are what the chat can display.
+func (c *Core) caps(chat transport.ChatID) transport.Caps {
+	if cp, ok := c.Transport.(transport.Capable); ok {
+		return cp.Caps(chat)
+	}
+	return transport.TelegramCaps
 }
 
 func (c *Core) handleButton(ctx context.Context, in transport.Incoming) error {
@@ -247,9 +261,11 @@ func (c *Core) createIssue(ctx context.Context, chat transport.ChatID, alias str
 	return c.send(ctx, chat, fmt.Sprintf("✅ %s · %s#%d · %s\n%s", alias, repo, is.Number, title, is.URL))
 }
 
-// comment posts the owner's text to an Issue and confirms briefly.
+// comment posts the owner's text to an Issue and confirms briefly. A
+// command typed with a capital ("/Approve", as phones write it) is posted
+// in lowercase.
 func (c *Core) comment(ctx context.Context, chat transport.ChatID, repo gh.Repo, n int, text string) error {
-	if err := c.post(ctx, repo, n, text); err != nil {
+	if err := c.post(ctx, repo, n, protocol.NormalizeCommand(text)); err != nil {
 		return c.send(ctx, chat, fmt.Sprintf("Не вдалося написати в %s#%d: %s", repo, n, shorten(err.Error(), 200)))
 	}
 	return c.send(ctx, chat, fmt.Sprintf("📨 %s#%d", repo, n))
@@ -389,11 +405,18 @@ func (c *Core) forward(ctx context.Context, cl gh.Client, alias string, repo gh.
 		}
 		// Once a forward starts it completes even if the bot is stopping.
 		// Each send has its own timeout, so one chat that hangs costs
-		// the others nothing.
-		msg := Format(alias, repo, issue, cm, labels)
+		// the others nothing. The comment is formatted once per kind of
+		// chat.
+		msgs := map[transport.Caps]transport.Outgoing{}
 		delivered := 0
 		var sendErrs []error
 		for _, chat := range c.Config.Chats() {
+			caps := c.caps(transport.ChatID(chat))
+			msg, ok := msgs[caps]
+			if !ok {
+				msg = Format(alias, repo, issue, cm, labels, caps)
+				msgs[caps] = msg
+			}
 			sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), c.sendTimeout())
 			_, err := c.Transport.Send(sctx, transport.ChatID(chat), msg)
 			cancel()

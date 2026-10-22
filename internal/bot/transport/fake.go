@@ -23,6 +23,8 @@ type Fake struct {
 	// Statuses, when set, is what Status returns; the test sends on it.
 	// Nil never fires.
 	Statuses chan Status
+	// CapsByChat overrides TelegramCaps for a chat.
+	CapsByChat map[ChatID]Caps
 }
 
 // Sent is one message the core sent.
@@ -33,7 +35,7 @@ type Sent struct {
 
 // NewFake returns a Fake with a buffered inbox.
 func NewFake() *Fake {
-	return &Fake{in: make(chan Incoming, 64), FailChat: map[ChatID]error{}, Hang: map[ChatID]bool{}}
+	return &Fake{in: make(chan Incoming, 64), FailChat: map[ChatID]error{}, Hang: map[ChatID]bool{}, CapsByChat: map[ChatID]Caps{}}
 }
 
 // Push delivers an Incoming to the core.
@@ -69,6 +71,16 @@ func (f *Fake) Ack(_ context.Context, cb Callback, _ string) error {
 	defer f.mu.Unlock()
 	f.Acks = append(f.Acks, cb)
 	return nil
+}
+
+// Caps makes a Fake Capable: TelegramCaps unless CapsByChat says otherwise.
+func (f *Fake) Caps(chat ChatID) Caps {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if c, ok := f.CapsByChat[chat]; ok {
+		return c
+	}
+	return TelegramCaps
 }
 
 // Status makes a Fake a Reporter.

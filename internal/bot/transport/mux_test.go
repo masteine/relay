@@ -51,7 +51,11 @@ func TestMuxRoutesSendAndAck(t *testing.T) {
 		t.Error("a bad id reached a child")
 	}
 	if c := m.Caps("wa:" + waChat); c != TelegramCaps {
-		t.Errorf("Caps of a child that is not Capable = %+v", c)
+		t.Errorf("Caps of a Fake by default = %+v", c)
+	}
+	wa.CapsByChat[waChat] = Caps{MaxText: 65536}
+	if c := m.Caps("wa:" + waChat); c != (Caps{MaxText: 65536}) || m.Caps("-100123") != TelegramCaps || m.Caps("xx:1") != TelegramCaps {
+		t.Errorf("Caps routes by prefix: %+v", c)
 	}
 }
 

@@ -14,8 +14,6 @@ import (
 	"github.com/masteine/relay/internal/protocol"
 )
 
-const waChat = "wa:380501234567@s.whatsapp.net"
-
 // ctxClient refuses a reaction on a context that has already ended, as the
 // real API would.
 type ctxClient struct{ *gh.Fake }
@@ -43,18 +41,6 @@ func (s *syncBuffer) String() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.b.String()
-}
-
-// withWhatsApp puts the harness's Fake behind a Mux as "tg" next to a "wa"
-// Fake, and allows a WhatsApp chat.
-func withWhatsApp(h *harness, timeout time.Duration) *transport.Fake {
-	wa := transport.NewFake()
-	mux := transport.NewMux("tg", map[string]transport.Transport{"tg": h.tr, "wa": wa})
-	mux.SendTimeout = timeout
-	h.core.Transport = mux
-	h.core.SendTimeout = timeout
-	h.core.Config.Allow = append(h.core.Config.Allow, Principal{Chat: waChat, User: "380501234567"})
-	return wa
 }
 
 func reactions(t *testing.T, f *gh.Fake, id int64) int {
@@ -93,12 +79,12 @@ func TestForwardHangStillReactsAndDoesNotRepeat(t *testing.T) {
 }
 
 func TestHandleHangBoundedByMux(t *testing.T) {
-	h := newHarness(t)
-	wa := withWhatsApp(h, 100*time.Millisecond)
-	wa.Hang["380501234567@s.whatsapp.net"] = true
+	h, wa, mux := whatsAppHarness(t)
+	mux.SendTimeout, h.core.SendTimeout = 100*time.Millisecond, 100*time.Millisecond
+	wa.Hang[waJID] = true
 	start := time.Now()
 	// A stray private message gets a hint, which goes to the hung chat.
-	err := h.core.Handle(context.Background(), transport.Incoming{Chat: waChat, User: "380501234567", Private: true, Text: "hello"})
+	err := h.core.Handle(context.Background(), transport.Incoming{Chat: "wa:" + waJID, User: waJID, Private: true, Text: "hello"})
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("err = %v", err)
 	}
@@ -109,10 +95,10 @@ func TestHandleHangBoundedByMux(t *testing.T) {
 
 func TestRunServesTelegramWhileWhatsAppHangs(t *testing.T) {
 	is := gh.Issue{Number: 2, Title: "T", Labels: []string{"relay:discuss"}, Comments: []gh.Comment{relayComment(t, 101, protocol.StageDiscuss)}}
-	h := newHarness(t, is)
+	h, wa, mux := whatsAppHarness(t, is)
 	const timeout = 300 * time.Millisecond
-	wa := withWhatsApp(h, timeout)
-	wa.Hang["380501234567@s.whatsapp.net"] = true
+	mux.SendTimeout, h.core.SendTimeout = timeout, timeout
+	wa.Hang[waJID] = true
 	h.core.Config.Poll = time.Hour
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -143,8 +129,8 @@ func TestRunServesTelegramWhileWhatsAppHangs(t *testing.T) {
 }
 
 func TestRunLogsTransportDown(t *testing.T) {
-	h := newHarness(t)
-	wa := withWhatsApp(h, time.Second)
+	h, wa, mux := whatsAppHarness(t)
+	mux.SendTimeout, h.core.SendTimeout = time.Second, time.Second
 	wa.Statuses = make(chan transport.Status)
 	log := &syncBuffer{}
 	h.core.Log = log
@@ -165,7 +151,7 @@ func TestRunLogsTransportDown(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	// Fail-fast now: no wait, nothing sent, Telegram unaffected.
-	if _, err := h.core.Transport.Send(ctx, waChat, transport.Outgoing{Text: "x"}); !errors.Is(err, transport.ErrDown) {
+	if _, err := h.core.Transport.Send(ctx, transport.ChatID("wa:"+waJID), transport.Outgoing{Text: "x"}); !errors.Is(err, transport.ErrDown) {
 		t.Errorf("err = %v", err)
 	}
 	if h.tr.Count() != 0 || wa.Count() != 0 {

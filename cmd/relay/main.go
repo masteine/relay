@@ -201,9 +201,13 @@ func botCmd(args []string, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	token, err := telegram.Token(cfg.Telegram.Keychain, cfg.Telegram.TokenFile)
-	if err != nil {
-		return err
+	// The Telegram token is needed only when a Telegram chat is allowed.
+	hasTelegram := cfg.Has(core.NameTelegram)
+	var token string
+	if hasTelegram {
+		if token, err = telegram.Token(cfg.Telegram.Keychain, cfg.Telegram.TokenFile); err != nil {
+			return err
+		}
 	}
 	ghToken, err := gh.Token()
 	if err != nil {
@@ -212,16 +216,28 @@ func botCmd(args []string, stderr io.Writer) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	tg, err := telegram.New(token)
-	if err != nil {
-		return err
+	// Mux keys come from core.Messengers, like the chat id prefixes.
+	children := map[string]transport.Transport{}
+	if hasTelegram {
+		tg, err := telegram.New(token)
+		if err != nil {
+			return err
+		}
+		me, err := tg.Me(ctx)
+		if err != nil {
+			return fmt.Errorf("telegram: the token does not work: %w", err)
+		}
+		fmt.Fprintf(stderr, "relay bot: @%s, config %s\n", me, *cfgPath)
+		m, _ := core.MessengerNamed(core.NameTelegram)
+		children[m.Key] = tg
 	}
-	me, err := tg.Me(ctx)
-	if err != nil {
-		return fmt.Errorf("telegram: the token does not work: %w", err)
+	if cfg.Has(core.NameWhatsApp) {
+		fmt.Fprintf(stderr, "relay bot: whatsapp: not available in this build yet\n")
 	}
-	fmt.Fprintf(stderr, "relay bot: @%s, config %s\n", me, *cfgPath)
-	c := core.New(cfg, transport.NewMux("tg", map[string]transport.Transport{"tg": tg}), func(repo gh.Repo) (gh.Client, error) { return gh.New(repo, ghToken) })
+	if len(children) == 0 {
+		return fmt.Errorf("no messenger to run: %s allows no Telegram chat, and WhatsApp is not available in this build yet", *cfgPath)
+	}
+	c := core.New(cfg, transport.NewMux(core.UnprefixedKey(), children), func(repo gh.Repo) (gh.Client, error) { return gh.New(repo, ghToken) })
 	c.Log = stderr
 	return c.Run(ctx)
 }

@@ -342,7 +342,7 @@ func TestButtonsByStage(t *testing.T) {
 	}
 	for _, tc := range cases {
 		labels, _ := protocol.ParseLabels(tc.labels)
-		out := Format("todo", repo, gh.Issue{Number: 5, Title: "T"}, protocol.Comment{ID: tc.cm.ID, Author: tc.cm.Author, Body: tc.cm.Body}, labels)
+		out := Format("todo", repo, gh.Issue{Number: 5, Title: "T"}, protocol.Comment{ID: tc.cm.ID, Author: tc.cm.Author, Body: tc.cm.Body}, labels, transport.TelegramCaps)
 		got := ""
 		if len(out.Buttons) > 0 {
 			got = out.Buttons[0].Data
@@ -355,7 +355,7 @@ func TestButtonsByStage(t *testing.T) {
 		}
 	}
 	// The longest allowed alias with a large Issue number still fits.
-	long := Format(strings.Repeat("a", MaxAliasLen), repo, gh.Issue{Number: 999999999}, protocol.Comment{ID: 1, Author: protocol.BotLogin, Body: "## Relay · discuss\n\nx"}, protocol.Labels{State: protocol.StateDiscuss})
+	long := Format(strings.Repeat("a", MaxAliasLen), repo, gh.Issue{Number: 999999999}, protocol.Comment{ID: 1, Author: protocol.BotLogin, Body: "## Relay · discuss\n\nx"}, protocol.Labels{State: protocol.StateDiscuss}, transport.TelegramCaps)
 	if len(long.Buttons[0].Data) > transport.MaxCallbackData {
 		t.Errorf("callback data %d bytes", len(long.Buttons[0].Data))
 	}
@@ -364,15 +364,15 @@ func TestButtonsByStage(t *testing.T) {
 func TestFormatTruncatesInUTF16(t *testing.T) {
 	repo := gh.Repo{Owner: "masteine", Name: "relay-sandbox"}
 	body, _ := protocol.FormatStageComment(protocol.StageComment{Stage: protocol.StagePlan, Body: strings.Repeat("😀", 3000), Ack: protocol.Ack{Upto: 1}})
-	out := Format("todo", repo, gh.Issue{Number: 5, Title: "T"}, protocol.Comment{ID: 9, Author: protocol.BotLogin, Body: body}, protocol.Labels{})
-	if n := TextLen(out.Text); n > MaxText {
+	out := Format("todo", repo, gh.Issue{Number: 5, Title: "T"}, protocol.Comment{ID: 9, Author: protocol.BotLogin, Body: body}, protocol.Labels{}, transport.TelegramCaps)
+	if n := TextLen(out.Text, true); n > MaxText {
 		t.Errorf("text is %d UTF-16 units", n)
 	}
 	if !strings.HasSuffix(out.Text, "#issuecomment-9") {
 		t.Error("the link must survive truncation")
 	}
-	if Truncate("abc", 3) != "abc" || Truncate("abcd", 3) != "ab…" {
-		t.Errorf("Truncate: %q %q", Truncate("abc", 3), Truncate("abcd", 3))
+	if Truncate("abc", 3, true) != "abc" || Truncate("abcd", 3, true) != "ab…" {
+		t.Errorf("Truncate: %q %q", Truncate("abc", 3, true), Truncate("abcd", 3, true))
 	}
 }
 

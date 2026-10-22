@@ -123,7 +123,7 @@ func (s *Sys) Setup(ctx context.Context, o Options) error {
 		if err != nil {
 			return err
 		}
-		if _, err := AllowPrincipal(s.configPath(), sender.Chat, sender.User); err != nil {
+		if _, err := AllowPrincipal(s.configPath(), core.NameTelegram, sender.Chat, sender.User); err != nil {
 			return err
 		}
 		s.logf("allowed user %s in chat %s (bot @%s)", sender.User, sender.Chat, sender.BotName)

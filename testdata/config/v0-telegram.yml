@@ -1,0 +1,19 @@
+# Relay bot configuration. Written by relay setup / relay add; edit by hand if you like.
+# The Telegram token is not here: RELAY_TELEGRAM_TOKEN, the Keychain item, or token_file.
+
+# alias → owner/repo. Send "<alias>: text" to the bot to open an Issue there.
+aliases:
+  todo: "masteine/relay-sandbox"
+  web: "masteine/site"
+
+# Who may drive the bot: (chat, user) pairs in Telegram's own ids.
+allow:
+  - {chat: "-100123", user: "7"}
+
+telegram:
+  keychain: "relay-telegram"
+
+poll: 20s
+lookback: 24h0m0s
+silence: 10m0s
+workflow: "relay.yml"
