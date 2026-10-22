@@ -1,0 +1,19 @@
+{
+  "title": "Relay discuss stage output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "body",
+    "ready_for_ticket"
+  ],
+  "properties": {
+    "body": {
+      "type": "string",
+      "description": "The reply to post as the discuss comment, in Markdown, without the '## Relay' heading and without a footer."
+    },
+    "ready_for_ticket": {
+      "type": "boolean",
+      "description": "true when the task is clear enough to be written as a ticket; the bot then offers the /ticket button."
+    }
+  }
+}

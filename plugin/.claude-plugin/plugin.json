@@ -1,0 +1,9 @@
+{
+  "name": "relay",
+  "version": "0.1.0",
+  "description": "Relay: a message in Telegram becomes a GitHub Issue, a plan, code and a release. Stage skills, planning agents and project templates.",
+  "author": { "name": "masteine" },
+  "repository": "https://github.com/masteine/relay",
+  "license": "MIT",
+  "keywords": ["relay", "github-actions", "pipeline", "telegram"]
+}

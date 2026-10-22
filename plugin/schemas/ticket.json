@@ -1,0 +1,20 @@
+{
+  "title": "Relay ticket stage output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "title",
+    "body"
+  ],
+  "properties": {
+    "title": {
+      "type": "string",
+      "maxLength": 80,
+      "description": "Issue title: imperative, specific, at most 80 characters, in the language of the discussion."
+    },
+    "body": {
+      "type": "string",
+      "description": "The task statement that replaces the Issue body, in Markdown, with the sections Задача, Контекст, Критерії приймання, Не в обсязі."
+    }
+  }
+}

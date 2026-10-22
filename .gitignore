@@ -1,0 +1,30 @@
+# Local sandbox checkouts used for integration runs (their own repositories).
+sandbox/
+
+# Stage scratch files; /relay:init adds the same line to each project.
+.relay/
+
+# Local working notes: OMC plans, research and session state, spike logs.
+.omc/
+docs/spikes.md
+docs/acceptance.md
+
+# Source documents kept outside the repository.
+*.pdf
+
+# Build output.
+dist/
+relay
+!cmd/relay/
+!internal/**/relay
+
+# Secrets and local environment.
+.env
+.env.*
+*.pem
+*.key
+
+# Editors and OS.
+.DS_Store
+.idea/
+.vscode/

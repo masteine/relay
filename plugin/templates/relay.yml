@@ -1,0 +1,34 @@
+# Relay project configuration. Kept short on purpose: the preset carries the
+# heavy parts (how to build, where the tests are, how to sign and deploy).
+# Docs: https://github.com/masteine/relay/blob/main/docs/protocol.md
+
+# The GitHub login that drives the pipeline. Only comments and labels by this
+# user start anything. /relay:init fills it from `gh api user`.
+owner: <owner>
+
+platform: <platform>          # android | web | desktop
+preset: <preset>              # android-release | web-vercel (v1) | desktop-tauri (v2)
+
+# Overrides for the preset's defaults. Leave commented to use the preset.
+# test: ./gradlew testDebugUnitTest
+# deploy: gh release create
+
+design: auto                  # auto | always | never — whether triage may ask for a design step
+gates: [plan]                 # which stages stop and wait for /approve: design, plan, deploy
+
+# Model and effort per stage. Thinking stages (triage, plan, review) run on the
+# strongest model at high effort; execution stages (implement, test) on a
+# lighter one. `fable` is a deliberate opt-in: in headless runs it can bill
+# usage credits beyond the subscription without asking.
+models:
+  discuss:   { model: sonnet, effort: medium }
+  triage:    { model: <thinking>, effort: high }
+  plan:      { model: <thinking>, effort: high }
+  implement: { model: sonnet, effort: medium }
+  test:      { model: sonnet, effort: medium }
+  review:    { model: <thinking>, effort: high }
+
+limits:
+  max_turns_per_stage: 200    # passed to claude as --max-turns
+  budget_per_task: off        # v1: a dollar amount → "continue?" gate when exceeded
+  concurrency: 1              # one active task per repository (v1 queues the rest)

@@ -1,0 +1,6 @@
+{
+  "inputs": {"issue": "11", "stage": "plan"},
+  "ref": "refs/heads/main",
+  "sender": {"login": "github-actions[bot]"},
+  "repository": {"full_name": "masteine/relay-sandbox", "private": true, "name": "relay-sandbox", "owner": {"login": "masteine"}}
+}

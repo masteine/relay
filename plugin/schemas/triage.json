@@ -1,0 +1,38 @@
+{
+  "title": "Relay triage stage output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "body",
+    "size",
+    "needs_design",
+    "key_files"
+  ],
+  "properties": {
+    "body": {
+      "type": "string",
+      "description": "The triage comment in Markdown: size with rationale, design decision, key files, risks. Without the '## Relay' heading and without a footer."
+    },
+    "size": {
+      "type": "string",
+      "enum": [
+        "S",
+        "M",
+        "L"
+      ],
+      "description": "S: one or two files, under an hour of work. M: a few files, one sitting. L: touches several areas or needs a design decision first."
+    },
+    "needs_design": {
+      "type": "boolean",
+      "description": "true when the task changes what the user sees and the project's design config is 'auto' or 'always'."
+    },
+    "key_files": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "string"
+      },
+      "description": "Repository-relative paths that exist and that the plan stage should read first."
+    }
+  }
+}

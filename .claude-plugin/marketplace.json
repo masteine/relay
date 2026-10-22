@@ -1,0 +1,13 @@
+{
+  "name": "relay",
+  "owner": { "name": "masteine" },
+  "metadata": { "description": "Relay plugin marketplace" },
+  "plugins": [
+    {
+      "name": "relay",
+      "source": "./plugin",
+      "description": "Relay: a message in Telegram becomes a GitHub Issue, a plan, code and a release.",
+      "version": "0.1.0"
+    }
+  ]
+}

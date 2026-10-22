@@ -1,0 +1,36 @@
+{
+  "title": "Relay plan stage output",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "body",
+    "spec_path",
+    "verdict",
+    "iterations"
+  ],
+  "properties": {
+    "body": {
+      "type": "string",
+      "description": "The plan comment in Markdown: the ADR in a few lines, the critic verdict, the number of iterations, and what the owner does next. Without the '## Relay' heading and without a footer."
+    },
+    "spec_path": {
+      "type": "string",
+      "pattern": "^docs/specs/[0-9]+-[a-z0-9-]+\\.md$",
+      "description": "Where the full plan was written: the spec path given in the context file."
+    },
+    "verdict": {
+      "type": "string",
+      "enum": [
+        "APPROVE",
+        "NO_CONSENSUS"
+      ],
+      "description": "APPROVE when the critic approved the final draft; NO_CONSENSUS when three iterations ran out."
+    },
+    "iterations": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3,
+      "description": "How many planner → architect → critic rounds ran."
+    }
+  }
+}

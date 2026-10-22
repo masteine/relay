@@ -1,0 +1,14 @@
+{
+  "action": "labeled",
+  "issue": {
+    "number": 8,
+    "title": "Manual start",
+    "body": "Task written by hand.",
+    "labels": [{"name": "bug"}, {"name": "relay"}],
+    "user": {"login": "masteine"},
+    "author_association": "OWNER"
+  },
+  "label": {"name": "relay"},
+  "sender": {"login": "masteine"},
+  "repository": {"full_name": "masteine/relay-sandbox", "private": true, "name": "relay-sandbox", "owner": {"login": "masteine"}}
+}

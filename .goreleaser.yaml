@@ -1,0 +1,44 @@
+# goreleaser configuration for Relay. A tag v* builds the binary for macOS
+# (the runner and the bot) and Linux (cloud runners, v1) and attaches the
+# archives to a GitHub release; install with `gh release download` or
+# `go install` (see README). The plugin is not in the package:
+# `relay setup` installs it through Claude Code's marketplace from this
+# repository.
+version: 2
+
+project_name: relay
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: relay
+    main: ./cmd/relay
+    binary: relay
+    env: [CGO_ENABLED=0]
+    goos: [darwin, linux]
+    goarch: [arm64, amd64]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - id: relay
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - docs/protocol.md
+      - plugin/**
+      - .claude-plugin/**
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude: ["^docs:", "^test:", "^chore:"]
