@@ -59,7 +59,7 @@ jobs:
     runs-on: [self-hosted, relay]
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
       - run: relay stage discuss --issue ${{ needs.route.outputs.issue }} --deadline 13m
@@ -70,7 +70,7 @@ jobs:
     runs-on: [self-hosted, relay]
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
       - run: relay stage ticket --issue ${{ needs.route.outputs.issue }} --deadline 13m
@@ -81,7 +81,7 @@ jobs:
     runs-on: [self-hosted, relay]
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
       - run: relay stage triage --issue ${{ needs.route.outputs.issue }} --deadline 18m
@@ -92,7 +92,7 @@ jobs:
     runs-on: [self-hosted, relay]
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - run: relay stage plan --issue ${{ needs.route.outputs.issue }} --deadline 42m
