@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"runtime/debug"
 	"strings"
 	"testing"
 )
@@ -22,6 +23,28 @@ func TestRunVersionAndUsage(t *testing.T) {
 	errb.Reset()
 	if code := run([]string{"stage", "triage", "-h"}, &out, &errb); code != 0 {
 		t.Errorf("-h: code=%d err=%q", code, errb.String())
+	}
+}
+
+func TestBuildVersion(t *testing.T) {
+	info := func(v string) func() (*debug.BuildInfo, bool) {
+		return func() (*debug.BuildInfo, bool) { return &debug.BuildInfo{Main: debug.Module{Version: v}}, true }
+	}
+	for _, c := range []struct{ ldflags, module, want string }{
+		{"0.2.0", "v0.1.0", "0.2.0"}, // goreleaser wins
+		{"dev", "v0.1.0", "0.1.0"},   // go install …@v0.1.0
+		{"dev", "v0.2.0-rc.1", "0.2.0-rc.1"},
+		{"dev", "(devel)", "dev"},
+		{"dev", "", "dev"},
+		{"dev", "v0.1.1-0.20261022073348-2b1ac7be2c50", "dev"},       // @main
+		{"dev", "v0.1.1-0.20261022073348-2b1ac7be2c50+dirty", "dev"}, // local checkout
+	} {
+		if got := buildVersion(c.ldflags, info(c.module)); got != c.want {
+			t.Errorf("buildVersion(%q, %q) = %q, want %q", c.ldflags, c.module, got, c.want)
+		}
+	}
+	if got := buildVersion("dev", func() (*debug.BuildInfo, bool) { return nil, false }); got != "dev" {
+		t.Errorf("no build info: %q", got)
 	}
 }
 

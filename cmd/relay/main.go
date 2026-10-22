@@ -12,7 +12,10 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
+	"runtime/debug"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/masteine/relay/internal/bot/core"
@@ -24,8 +27,26 @@ import (
 	"github.com/masteine/relay/internal/stage"
 )
 
-// version is set by goreleaser through -ldflags.
-var version = "dev"
+// version is set by goreleaser through -ldflags; `go install …@v0.1.0`
+// leaves it "dev", and buildVersion takes the module version instead.
+var version = buildVersion("dev", debug.ReadBuildInfo)
+
+// releaseRe is a tagged module version: no pseudo-version timestamp and no
+// +dirty, so a local or @main build stays "dev" and `relay doctor` does not
+// compare it with the plugin.
+var releaseRe = regexp.MustCompile(`^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
+var pseudoRe = regexp.MustCompile(`\d{14}-[0-9a-f]{12}$`)
+
+func buildVersion(v string, read func() (*debug.BuildInfo, bool)) string {
+	if v != "dev" {
+		return v
+	}
+	bi, ok := read()
+	if !ok || !releaseRe.MatchString(bi.Main.Version) || pseudoRe.MatchString(bi.Main.Version) {
+		return v
+	}
+	return strings.TrimPrefix(bi.Main.Version, "v")
+}
 
 const usage = `relay — a message in Telegram becomes a GitHub Issue, a plan, code and a release.
 
