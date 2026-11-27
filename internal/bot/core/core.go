@@ -29,9 +29,10 @@ import (
 // alias.
 type Clients func(repo gh.Repo) (gh.Client, error)
 
-// deliverTimeout bounds a forward (send plus react) once it has started,
-// even when the bot is being stopped: a message that went out must get its
-// reaction, or it would be sent again after the restart.
+// deliverTimeout bounds the reaction after a forward, even when the bot is
+// being stopped: a message that went out must get its reaction, or it would
+// be sent again after the restart. It is fresh after the sends, so a chat
+// that hung cannot use it up.
 const deliverTimeout = 20 * time.Second
 
 // Core is the bot.
@@ -43,6 +44,9 @@ type Core struct {
 	Now func() time.Time
 	// Log receives progress lines; nil means stderr.
 	Log io.Writer
+	// SendTimeout bounds each send of a forward; zero means
+	// transport.SendTimeout. Tests shrink it.
+	SendTimeout time.Duration
 
 	mu      sync.Mutex
 	clients map[string]gh.Client
@@ -79,6 +83,13 @@ func (c *Core) logf(format string, args ...any) {
 	fmt.Fprintf(w, "relay bot: "+format+"\n", args...)
 }
 
+func (c *Core) sendTimeout() time.Duration {
+	if c.SendTimeout <= 0 {
+		return transport.SendTimeout
+	}
+	return c.SendTimeout
+}
+
 func (c *Core) client(repo gh.Repo) (gh.Client, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -94,12 +105,18 @@ func (c *Core) client(repo gh.Repo) (gh.Client, error) {
 }
 
 // Run receives messages and polls GitHub until ctx ends or the transport
-// closes its channel. A poll or a message in flight finishes first.
+// closes its channel. A poll or a message in flight finishes first. A
+// transport that reports its connection state has it logged.
 func (c *Core) Run(ctx context.Context) error {
 	in, err := c.Transport.Receive(ctx)
 	if err != nil {
 		return err
 	}
+	var status <-chan transport.Status // nil: never fires
+	if r, ok := c.Transport.(transport.Reporter); ok {
+		status = r.Status()
+	}
+	links := map[string]*link{}
 	ticker := time.NewTicker(c.Config.Poll)
 	defer ticker.Stop()
 	c.logf("started: %d alias(es), %d allowed chat(s), poll %s", len(c.Config.Aliases), len(c.Config.Chats()), c.Config.Poll)
@@ -117,6 +134,17 @@ func (c *Core) Run(ctx context.Context) error {
 			if err := c.Handle(ctx, msg); err != nil {
 				c.logf("handle: %v", err)
 			}
+		case st, ok := <-status:
+			if !ok {
+				status = nil
+				continue
+			}
+			l := links[st.Messenger]
+			if l == nil {
+				l = &link{}
+				links[st.Messenger] = l
+			}
+			c.linkStatus(ctx, l, st)
 		case <-ticker.C:
 			if err := c.Poll(ctx); err != nil {
 				c.logf("poll: %v", err)
@@ -168,12 +196,24 @@ func (c *Core) Handle(ctx context.Context, in transport.Incoming) error {
 }
 
 // hint answers an unrecognised message, in private chats only: in a group
-// every stray message would get one.
+// every stray message would get one. A chat without buttons also learns how
+// to reply.
 func (c *Core) hint(ctx context.Context, in transport.Incoming, text string) error {
 	if !in.Private {
 		return nil
 	}
+	if c.caps(in.Chat).Buttons == 0 {
+		text += "\nПроведіть пальцем праворуч по повідомленню Relay, щоб відповісти; команди — /ticket, /approve, /retry."
+	}
 	return c.send(ctx, in.Chat, text)
+}
+
+// caps are what the chat can display.
+func (c *Core) caps(chat transport.ChatID) transport.Caps {
+	if cp, ok := c.Transport.(transport.Capable); ok {
+		return cp.Caps(chat)
+	}
+	return transport.TelegramCaps
 }
 
 func (c *Core) handleButton(ctx context.Context, in transport.Incoming) error {
@@ -221,9 +261,11 @@ func (c *Core) createIssue(ctx context.Context, chat transport.ChatID, alias str
 	return c.send(ctx, chat, fmt.Sprintf("✅ %s · %s#%d · %s\n%s", alias, repo, is.Number, title, is.URL))
 }
 
-// comment posts the owner's text to an Issue and confirms briefly.
+// comment posts the owner's text to an Issue and confirms briefly. A
+// command typed with a capital ("/Approve", as phones write it) is posted
+// in lowercase.
 func (c *Core) comment(ctx context.Context, chat transport.ChatID, repo gh.Repo, n int, text string) error {
-	if err := c.post(ctx, repo, n, text); err != nil {
+	if err := c.post(ctx, repo, n, protocol.NormalizeCommand(text)); err != nil {
 		return c.send(ctx, chat, fmt.Sprintf("Не вдалося написати в %s#%d: %s", repo, n, shorten(err.Error(), 200)))
 	}
 	return c.send(ctx, chat, fmt.Sprintf("📨 %s#%d", repo, n))
@@ -362,25 +404,36 @@ func (c *Core) forward(ctx context.Context, cl gh.Client, alias string, repo gh.
 			continue
 		}
 		// Once a forward starts it completes even if the bot is stopping.
-		dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), deliverTimeout)
-		msg := Format(alias, repo, issue, cm, labels)
+		// Each send has its own timeout, so one chat that hangs costs
+		// the others nothing. The comment is formatted once per kind of
+		// chat.
+		msgs := map[transport.Caps]transport.Outgoing{}
 		delivered := 0
 		var sendErrs []error
 		for _, chat := range c.Config.Chats() {
-			if _, err := c.Transport.Send(dctx, transport.ChatID(chat), msg); err != nil {
+			caps := c.caps(transport.ChatID(chat))
+			msg, ok := msgs[caps]
+			if !ok {
+				msg = Format(alias, repo, issue, cm, labels, caps)
+				msgs[caps] = msg
+			}
+			sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), c.sendTimeout())
+			_, err := c.Transport.Send(sctx, transport.ChatID(chat), msg)
+			cancel()
+			if err != nil {
 				sendErrs = append(sendErrs, fmt.Errorf("chat %s: %w", chat, err))
 				continue
 			}
 			delivered++
 		}
 		if delivered == 0 {
-			cancel()
 			return fmt.Errorf("%s#%d comment %d: no chat accepted it: %w", repo, issue.Number, cm.ID, errors.Join(sendErrs...))
 		}
 		for _, e := range sendErrs {
 			c.logf("%s#%d comment %d: %v", repo, issue.Number, cm.ID, e)
 		}
-		err = cl.React(dctx, cm.ID, gh.ReactionEyes)
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), deliverTimeout)
+		err = cl.React(rctx, cm.ID, gh.ReactionEyes)
 		cancel()
 		if err != nil {
 			return err

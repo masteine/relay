@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -25,12 +26,126 @@ func DefaultConfigPath() string {
 // bytes with room for a large Issue number.
 const MaxAliasLen = 32
 
-// Principal is one allowed (chat, user) pair, in the messenger's own ids.
-// In a group chat only the listed user may drive the bot.
-type Principal struct {
-	Chat string `yaml:"chat"`
-	User string `yaml:"user"`
+// DefaultWhatsAppStore is where the WhatsApp session is kept.
+func DefaultWhatsAppStore() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "relay", "whatsapp", "session.db")
 }
+
+// Messenger is one messenger the bot can talk through.
+type Messenger struct {
+	// Name is how the config names it ("messenger: whatsapp").
+	Name string
+	// Key is its key in the transport.Mux and, unless Unprefixed, the
+	// prefix of its chat ids in the core ("wa:380…").
+	Key        string
+	Unprefixed bool
+	// Display is the name humans read in notices.
+	Display string
+	// Setup is the command that connects it again.
+	Setup string
+}
+
+// Messenger names in the config.
+const (
+	NameTelegram = "telegram"
+	NameWhatsApp = "whatsapp"
+)
+
+// Messengers is the one table of messengers: config names, Mux keys and
+// chat id prefixes all come from here. Telegram is unprefixed, so its ids
+// are what they were before WhatsApp.
+var Messengers = []Messenger{
+	{Name: NameTelegram, Key: "tg", Unprefixed: true, Display: "Telegram", Setup: "relay setup"},
+	{Name: NameWhatsApp, Key: "wa", Display: "WhatsApp", Setup: "relay setup --whatsapp"},
+}
+
+// NormalizeMessenger is the messenger name every comparison uses: an empty
+// one (every row written before WhatsApp) is Telegram.
+func NormalizeMessenger(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		return NameTelegram
+	}
+	return name
+}
+
+// MessengerNamed finds a messenger by its config name.
+func MessengerNamed(name string) (Messenger, bool) {
+	name = NormalizeMessenger(name)
+	for _, m := range Messengers {
+		if m.Name == name {
+			return m, true
+		}
+	}
+	return Messenger{}, false
+}
+
+// MessengerKeyed finds a messenger by its Mux key.
+func MessengerKeyed(key string) (Messenger, bool) {
+	for _, m := range Messengers {
+		if m.Key == key {
+			return m, true
+		}
+	}
+	return Messenger{}, false
+}
+
+// UnprefixedKey is the Mux key whose chat ids carry no prefix.
+func UnprefixedKey() string {
+	for _, m := range Messengers {
+		if m.Unprefixed {
+			return m.Key
+		}
+	}
+	return ""
+}
+
+// Principal is one allowed (chat, user) pair, in the messenger's own ids.
+// In a group chat only the listed user may drive the bot. Messenger is
+// empty for Telegram, so that a Telegram-only file has no new keys.
+type Principal struct {
+	Messenger string `yaml:"messenger,omitempty"`
+	Chat      string `yaml:"chat"`
+	User      string `yaml:"user"`
+}
+
+// ChatKey is the chat as the core and the transport.Mux see it: raw for
+// Telegram, "wa:"+Chat for WhatsApp.
+func (p Principal) ChatKey() string {
+	m, ok := MessengerNamed(p.Messenger)
+	if !ok {
+		return NormalizeMessenger(p.Messenger) + ":" + p.Chat // routes nowhere
+	}
+	if m.Unprefixed {
+		return p.Chat
+	}
+	return m.Key + ":" + p.Chat
+}
+
+// Validate checks the ids by the messenger's rules: numeric ids for
+// Telegram; for WhatsApp a private chat by phone number, chat == user.
+func (p Principal) Validate() error {
+	switch NormalizeMessenger(p.Messenger) {
+	case NameTelegram:
+		if !ValidID(p.Chat) || !ValidID(p.User) {
+			return fmt.Errorf("chat and user must be numeric ids, got chat %q user %q", p.Chat, p.User)
+		}
+	case NameWhatsApp:
+		if !ValidJID(p.Chat) || p.User != p.Chat {
+			return fmt.Errorf("whatsapp: chat and user must be the same <phone>@s.whatsapp.net (private chats only), got chat %q user %q", p.Chat, p.User)
+		}
+	default:
+		return fmt.Errorf("unknown messenger %q", p.Messenger)
+	}
+	return nil
+}
+
+var jidRe = regexp.MustCompile(`^[0-9]{5,20}@s\.whatsapp\.net$`)
+
+// ValidJID accepts a WhatsApp user by phone number. Groups (@g.us) and
+// hidden ids (@lid) are refused: the bot answers private chats only.
+func ValidJID(s string) bool { return jidRe.MatchString(s) }
 
 // Telegram says where the bot token comes from. The token itself is never
 // in this file: RELAY_TELEGRAM_TOKEN in the environment, then the Keychain
@@ -40,6 +155,11 @@ type Telegram struct {
 	TokenFile string `yaml:"token_file"` // fallback file with the token, mode 0600
 }
 
+// WhatsApp says where the WhatsApp session is kept.
+type WhatsApp struct {
+	Store string `yaml:"store"`
+}
+
 // Config is ~/.config/relay/config.yml.
 type Config struct {
 	// Aliases map a short name to owner/repo. Aliases are case-insensitive
@@ -47,6 +167,7 @@ type Config struct {
 	Aliases  map[string]string `yaml:"aliases"`
 	Allow    []Principal       `yaml:"allow"`
 	Telegram Telegram          `yaml:"telegram"`
+	WhatsApp WhatsApp          `yaml:"whatsapp"`
 	// Poll is how often the bot looks at GitHub.
 	Poll time.Duration `yaml:"poll"`
 	// Lookback is how far back the first poll after a start looks.
@@ -63,6 +184,7 @@ func Defaults() Config {
 	return Config{
 		Aliases:  map[string]string{},
 		Telegram: Telegram{Keychain: "relay-telegram"},
+		WhatsApp: WhatsApp{Store: DefaultWhatsAppStore()},
 		Poll:     20 * time.Second,
 		Lookback: 24 * time.Hour,
 		Silence:  10 * time.Minute,
@@ -114,6 +236,9 @@ func Decode(data []byte) (Config, error) {
 		c.Telegram.Keychain = in.Telegram.Keychain
 	}
 	c.Telegram.TokenFile = in.Telegram.TokenFile
+	if in.WhatsApp.Store != "" {
+		c.WhatsApp.Store = in.WhatsApp.Store
+	}
 	if in.Poll != 0 {
 		c.Poll = in.Poll
 	}
@@ -145,8 +270,8 @@ func (c Config) Validate() error {
 		return fmt.Errorf("no allowed chats: the bot would answer nobody")
 	}
 	for _, p := range c.Allow {
-		if !ValidID(p.Chat) || !ValidID(p.User) {
-			return fmt.Errorf("allow: chat and user must be numeric ids, got chat %q user %q", p.Chat, p.User)
+		if err := p.Validate(); err != nil {
+			return fmt.Errorf("allow: %w", err)
 		}
 	}
 	if c.Poll < 5*time.Second {
@@ -185,25 +310,46 @@ func ValidAlias(s string) bool {
 	return true
 }
 
-// Allowed reports whether the (chat, user) pair may drive the bot.
+// Allowed reports whether the (chat, user) pair may drive the bot; chat is
+// a ChatKey.
 func (c Config) Allowed(chat, user string) bool {
 	for _, p := range c.Allow {
-		if p.Chat == chat && p.User == user {
+		if p.ChatKey() == chat && p.User == user {
 			return true
 		}
 	}
 	return false
 }
 
-// Chats lists the allowed chats, each once, in a stable order. Forwarded
-// comments go to all of them.
-func (c Config) Chats() []string {
+// Chats lists the allowed chats as ChatKeys, each once, in a stable order.
+// Forwarded comments go to all of them.
+func (c Config) Chats() []string { return c.chats(func(Principal) bool { return true }) }
+
+// ChatsExcept lists the allowed chats of every messenger but one, for a
+// notice that this one is down.
+func (c Config) ChatsExcept(messenger string) []string {
+	name := NormalizeMessenger(messenger)
+	return c.chats(func(p Principal) bool { return NormalizeMessenger(p.Messenger) != name })
+}
+
+// Has reports whether any allowed chat is on the messenger.
+func (c Config) Has(messenger string) bool {
+	name := NormalizeMessenger(messenger)
+	for _, p := range c.Allow {
+		if NormalizeMessenger(p.Messenger) == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (c Config) chats(keep func(Principal) bool) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, p := range c.Allow {
-		if !seen[p.Chat] {
-			seen[p.Chat] = true
-			out = append(out, p.Chat)
+		if k := p.ChatKey(); keep(p) && !seen[k] {
+			seen[k] = true
+			out = append(out, k)
 		}
 	}
 	sort.Strings(out)
